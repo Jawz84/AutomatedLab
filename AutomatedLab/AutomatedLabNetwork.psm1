@@ -13,25 +13,14 @@ function New-LabNetworkSwitches
         Write-Error 'No definitions imported, so there is nothing to do. Please use Import-Lab first'
         return
     }
+
+    Write-Verbose "Creating network switch '$($virtualNetwork.Name)'..."
 	
     $vmwareNetworks = $data.VirtualNetworks | Where-Object HostType -eq VMWare
     if ($vmwareNetworks)
     {
-        foreach ($vmwareNetwork in $vmwareNetworks)
-        {
-            $network = Get-LWVMWareNetworkSwitch -VirtualNetwork $vmwareNetwork
-            if (-not $vmwareNetworks)
-            {
-                throw "The networks '$($vmwareNetwork.Name)' does not exist and must be created before."
-            }
-            else
-            {
-                Write-Verbose "Network '$($vmwareNetwork.Name)' found"
-            }
-        }
+        New-LWVMWareNetworkSwitch -VirtualNetwork $vmwareNetworks
     }
-		
-    Write-Verbose "Creating network switch '$($virtualNetwork.Name)'..."
 
     $hypervNetworks = $data.VirtualNetworks | Where-Object HostType -eq HyperV
     if ($hypervNetworks)
