@@ -1,4 +1,4 @@
-﻿#region Get-LWVMWareNetworkSwitch
+#region Get-LWVMWareNetworkSwitch
 function Get-LWVMWareNetworkSwitch
 {
     param (
@@ -10,8 +10,12 @@ function Get-LWVMWareNetworkSwitch
 
     foreach ($network in $VirtualNetwork)
     {
-        $network = Get-VDPortgroup -Name $network.Name
+        $network = Get-VirtualPortgroup -Name $network.Name -ErrorAction SilentlyContinue
 
+        if (-not $network)
+        {
+            $network = Get-VDPortgroup -Name $network.Name -ErrorAction SilentlyContinue
+        }
         if (-not $network)
         {
             Write-Error "Network '$Name' is not configured"
