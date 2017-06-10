@@ -62,22 +62,10 @@ function New-LWVMWareVM
 	[Cmdletbinding()]
 	Param (
 		[Parameter(Mandatory)]
-		[string]$Name,
+		[AutomatedLab.Machine]$Machine,
 		
 		[Parameter(Mandatory)]
 		[string]$ReferenceVM,
-		
-		[Parameter(Mandatory)]
-		[string]$AdminUserName,
-		
-		[Parameter(Mandatory)]
-		[string]$AdminPassword,
-		
-		[Parameter(ParameterSetName = 'DomainJoin')]
-		[string]$DomainName,
-		
-		[Parameter(Mandatory, ParameterSetName = 'DomainJoin')]
-		[pscredential]$DomainJoinCredential,
 		
 		[switch]$AsJob,
 		
@@ -86,37 +74,32 @@ function New-LWVMWareVM
 	
 	Write-LogFunctionEntry
 	
-	$lab = Get-Lab
-	
-    #TODO: add logic to determine if machine already exists
-    <#
-    if (Get-VM -Name $Machine.Name -ErrorAction SilentlyContinue)
+    if (VMware.VimAutomation.Core\Get-VM -Name $Machine.Name -ErrorAction SilentlyContinue)
     {
         Write-ProgressIndicatorEnd
         Write-ScreenInfo -Message "The machine '$Machine' does already exist" -Type Warning
         return $false
     }
 
-    Write-Verbose "Creating machine with the name '$($Machine.Name)' in the path '$VmPath'"
-
-    #>
+	$lab = Get-Lab 
     
-    $folderName = "AutomatedLab_$($lab.Name)"
+	$folderName = "AutomatedLab_$($lab.Name)"
     if (-not (Get-Folder -Name $folderName -ErrorAction SilentlyContinue))
     {
         New-Folder -Name $folderName -Location VM | out-null
     }
-    
 
-    $referenceSnapshot = (Get-Snapshot -VM (VMware.VimAutomation.Core\Get-VM $ReferenceVM)).Name | select -last 1
+	Write-Verbose "Creating machine with the name '$Machine' in the VMWare Folder '$foldername'"
+    
+    $referenceSnapshot = (Get-Snapshot -VM (VMware.VimAutomation.Core\Get-VM $ReferenceVM)).Name | select -last 1 
 	
 	$parameters = @{
-		Name = $Name
+		Name = $Machine.Name
 		ReferenceVM = $ReferenceVM
-		AdminUserName = $AdminUserName
-		AdminPassword = $AdminPassword
-		DomainName = $DomainName
-		DomainCred = $DomainJoinCredential
+		AdminUserName = $Machine.InstallationUser.UserName
+		AdminPassword = $Machine.InstallationUser.Password
+		DomainName = $Machine.DomainName
+		DomainCred = $Machine.GetCredential($lab)
 		FolderName = $FolderName
 	}
 	
@@ -142,15 +125,55 @@ function New-LWVMWareVM
 		
 		if (-not $parameters.DomainName)
 		{
-			$osSpecs = New-OSCustomizationSpec -Name AutomatedLabSpec -FullName $parameters.AdminUserName -AdminPassword $parameters.AdminPassword `
-											   -OSType Windows -Type NonPersistent -OrgName AutomatedLab -Workgroup AutomatedLab -ChangeSid
-            #$osSpecs = Get-OSCustomizationSpec -Name Standard | Get-OSCustomizationNicMapping | Set-OSCustomizationNicMapping -IpMode UseStaticIP -IpAddress $ipaddress -SubnetMask $netmask -DefaultGateway $gateway -Dns $DNS
+			$osSpecs = New-OSCustomizationSpec `
+				-Name AutomatedLabSpec `
+				-FullName $parameters.AdminUserName `
+				-AdminPassword $parameters.AdminPassword `
+				-OSType Windows `
+				-Type NonPersistent `
+				-OrgName AutomatedLab `
+				-Workgroup AutomatedLab `
+				-ChangeSid
 		}
         else
 	    {
-		    $osSpecs = New-OSCustomizationSpec -Name AutomatedLabSpec -FullName $parameters.AdminUserName -AdminPassword $parameters.AdminPassword `
-										       -OSType Windows -Type NonPersistent -OrgName AutomatedLab -Domain $parameters.DomainName -DomainCredentials $DomainJoinCredential -ChangeSid
+		    $osSpecs = New-OSCustomizationSpec `
+				-Name AutomatedLabSpec `
+				-FullName $parameters.AdminUserName `
+				-AdminPassword $parameters.AdminPassword `
+			    -OSType Windows `
+				-Type NonPersistent `
+				-OrgName AutomatedLab `
+				-Domain $parameters.DomainName `
+				-DomainCredentials $DomainJoinCredential `
+				-ChangeSid
 	    }
+
+		# TODO: add check somewhere upstream that VMWare may not support ipv6 in OSCustomizationNicMapping.
+
+		$osSpecsWithNet = @()
+		foreach ($netadapter in $Machine.NetworkAdapters ) 
+		{
+			[AutomatedLab.NetworkAdapter]$netadapter = $netadapter 
+
+			if ($netadapter.UseDhcp) 
+			{
+				$osSpecsWithNet += $osSpecs | Get-OSCustomizationNicMapping | Set-OSCustomizationNicMapping `
+					-IpMode UseDhcp`
+					-NetworkAdapterMac $netadapter.MacAddress
+			}
+			else {
+				$osSpecsWithNet += $osSpecs | Get-OSCustomizationNicMapping | Set-OSCustomizationNicMapping `
+					-IpMode UseStaticIp `
+					-IpAddress $netadapter.Ipv4Address[0].IpAddress `
+					-SubnetMask $netadapter.Ipv4Address[0].Netmask `
+					-DefaultGateway $netadapter.Ipv4Gateway `
+					-Dns $netadapter.Ipv4DnsServers `
+					-NetworkAdapterMac $netadapter.MacAddress
+			}
+
+		}
+	
 
         $ReferenceVM_int = VMware.VimAutomation.Core\Get-VM -Name $parameters.ReferenceVM
         if (-not $ReferenceVM_int)
@@ -159,27 +182,28 @@ function New-LWVMWareVM
 	        return
         }
 
-        # Create Linked Clone
-        $result = VMware.VimAutomation.Core\New-VM `
-            -Name $parameters.Name `
-            -ResourcePool $lab.VMWareSettings.ResourcePool `
-		    -Datastore $lab.VMWareSettings.DataStore `
-            -Location (Get-Folder -Name $parameters.FolderName) `
-            -OSCustomizationSpec $osSpecs `
-            -VM $ReferenceVM_int `
-            -LinkedClone `
-            -ReferenceSnapshot $referenceSnapshot `
-        
-        #TODO: logic to switch to full clone for AD recovery scenario's etc.
-        <# Create full clone
-        $result = New-VM `
-            -Name $parameters.Name `
-            -ResourcePool $lab.VMWareSettings.ResourcePool `
-		    -Datastore $lab.VMWareSettings.DataStore `
-            -Location (Get-Folder -Name $parameters.FolderName) `
-            -OSCustomizationSpec $osSpecs `
-            -VM $ReferenceVM_int    
-        #>    
+        if ($Machine.Roles.Name -notcontains "DC") {
+			# Create Linked Clone
+			$result = VMware.VimAutomation.Core\New-VM `
+				-Name $parameters.Name `
+				-ResourcePool $lab.VMWareSettings.ResourcePool `
+				-Datastore $lab.VMWareSettings.DataStore `
+				-Location (Get-Folder -Name $parameters.FolderName) `
+				-OSCustomizationSpec $osSpecsWithNet `
+				-VM $ReferenceVM_int `
+				-LinkedClone `
+				-ReferenceSnapshot $referenceSnapshot `
+		}
+        else {
+			#DC will be gull clone for AD recovery scenario's etc.
+			$result = VMware.VimAutomation.Core\New-VM `
+				-Name $parameters.Name `
+				-ResourcePool $lab.VMWareSettings.ResourcePool `
+				-Datastore $lab.VMWareSettings.DataStore `
+				-Location (Get-Folder -Name $parameters.FolderName) `
+				-OSCustomizationSpec $osSpecs `
+				-VM $ReferenceVM_int    
+		}
     }
 
     if ($PassThru)

@@ -74,6 +74,7 @@ function New-LabVM
         }
         elseif ($machine.HostType -eq 'VMWare')
         {
+            #TODO: see if this check can be moved up to validating the lab. 
             $vmImageName = (New-Object AutomatedLab.OperatingSystem($machine.OperatingSystem)).VMWareImageName
             if (-not $vmImageName)
             {
@@ -81,8 +82,7 @@ function New-LabVM
                 continue
             }
             
-            New-LWVMWareVM -Name $machine.Name -ReferenceVM $vmImageName -AdminUserName $machine.InstallationUser.UserName -AdminPassword $machine.InstallationUser.Password `
-            -DomainName $machine.DomainName -DomainJoinCredential $machine.GetCredential($lab)
+            New-LWVMWareVM -Machine $machine -ReferenceVM $vmImageName
             
             Start-LabVM -ComputerName $machine
         }
