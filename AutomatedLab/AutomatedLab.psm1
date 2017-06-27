@@ -255,9 +255,15 @@ function Import-Lab
             throw "The Azure PowerShell module version $($minimumAzureModuleVersion) or greater is not available. Please install it using the command 'Install-Module -Name AzureRm -Force'"
         }
 
-        if (($Script:data.Machines | Where-Object HostType -eq VMWare) -and ((Get-PSSnapin -Name VMware.VimAutomation.*).Count -ne 1))
+        if (($Script:data.Machines | Where-Object HostType -eq VMWare) -and ((Get-Module -Name VMware.VimAutomation.* -ErrorAction SilentlyContinue).Count -lt 1))
         {
-            throw 'The VMWare snapin was not loaded. Maybe it is missing'
+            # http://www.vmware.com/resources/compatibility/sim/interop_matrix.php#interop&299=2247&2= 
+            # PowerCLI version 6.5.1 is backwards compatible with all vCenter Server editions, down to version 5.5.
+            # Import VMware modules, and check if VMware snapin is loaded as a result.
+            Get-Module -ListAvailable VMware.* | Import-Module 
+            if ((Get-Module -Name VMware.VimAutomation.*  -ErrorAction SilentlyContinue).Count -lt 1) {
+                throw 'The VMWare modules were not loaded. Maybe PowerCLI is missing.'
+            }
         }
     
         #import all the disk files referenced in the lab.xml
@@ -411,7 +417,7 @@ function Clear-Lab
     $Script:data = $null
     foreach ($module in $MyInvocation.MyCommand.Module.NestedModules | Where-Object ModuleType -eq 'Script')
     {
-        & $module { $Script:data = $null }
+        & $module { $Script:data = $null } -ErrorAction SilentlyContinue
     }
 
     Write-LogFunctionExit
