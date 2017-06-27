@@ -7,16 +7,10 @@
 #>
 #Requires -Modules @{ModuleName="VMware.VimAutomation.Core";ModuleVersion="6.5.1.0"}
 #Requires -RunAsAdministrator
+
 # Redirect $env:PSmodulepath to develop AutomatedLab modules
 $path = "C:\Users\Jos\Documents\GitHub\AutomatedLab"
 $env:PSModulePath += ";$path"
-<#
-# Save a credential for VMware access
-if (-not $cred) {
-    $cred = (get-credential administrator@vsphere.local)
-}
-# Import VMware modules to current session
-#get-module -ListAvailable vmware* | import-module
 
 $VerbosePreference = "Continue"
 
@@ -28,12 +22,6 @@ Add-LabVirtualNetworkDefinition -Name AutomatedLabNetwerk -VirtualizationEngine 
 
 Add-LabMachineDefinition -Name test1 -memory 1gb -Processors 1 -OS 'Windows Server 2012 R2 SERVERDATACENTER' -Roles webserver
 
-
-
-#>
 Import-Lab VMWareLab
+
 Install-Lab 
-
-
-## Netwerk - portgroup aanmaken rudimentair werkt.
-## VM clonen werkt niet meer
